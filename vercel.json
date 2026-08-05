@@ -1,7 +1,14 @@
 {
     "version": 2,
     "env": {
-        "PHP_VERSION": "8.4"
+        "PHP_VERSION": "8.4",
+        "APP_ENV": "production",
+        "APP_DEBUG": "true",
+        "APP_KEY": "base64:mdJSeoeHHmmRBRoz4/D8v+VStu9ZwlrzSw44ZFyijvU=",
+        "LOG_CHANNEL": "stderr",
+        "VIEW_COMPILED_PATH": "/tmp/views",
+        "SESSION_DRIVER": "cookie",
+        "CACHE_STORE": "array"
     },
     "build": {
         "env": {
