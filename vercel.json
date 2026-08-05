@@ -1,8 +1,16 @@
 {
     "version": 2,
+    "env": {
+        "PHP_VERSION": "8.4"
+    },
+    "build": {
+        "env": {
+            "PHP_VERSION": "8.4"
+        }
+    },
     "functions": {
         "api/index.php": {
-            "runtime": "vercel-php@0.7.3"
+            "runtime": "vercel-php@0.8.0"
         }
     },
     "routes": [
