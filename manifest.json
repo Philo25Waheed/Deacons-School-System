@@ -1,0 +1,17 @@
+{
+  "short_name": "DeaconsSchool",
+  "name": "مدرسة الشمامسة - Deacons School Management System",
+  "icons": [
+    {
+      "src": "assets/images/default-avatar.png",
+      "sizes": "192x192",
+      "type": "image/png"
+    }
+  ],
+  "start_url": "./index.php",
+  "background_color": "#0b0f19",
+  "theme_color": "#1e3a8a",
+  "display": "standalone",
+  "dir": "rtl",
+  "lang": "ar"
+}
