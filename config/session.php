@@ -7,13 +7,19 @@ if (session_status() === PHP_SESSION_NONE) {
     ini_set('session.gc_maxlifetime', 28800);
     ini_set('session.cookie_lifetime', 28800);
 
+    $isHttps = (! empty($_SERVER['HTTPS']) && $_SERVER['HTTPS'] !== 'off')
+        || (isset($_SERVER['HTTP_X_FORWARDED_PROTO']) && $_SERVER['HTTP_X_FORWARDED_PROTO'] === 'https')
+        || getenv('APP_ENV') === 'production';
+
+    $sameSite = getenv('SESSION_SAMESITE') ?: 'Lax';
+
     session_set_cookie_params([
         'lifetime' => 28800,
         'path' => '/',
         'domain' => '',
-        'secure' => false, // Set to true if HTTPS is enforced
+        'secure' => $isHttps,
         'httponly' => true,
-        'samesite' => 'Lax',
+        'samesite' => $sameSite,
     ]);
 
     session_start();

@@ -1,6 +1,7 @@
 <?php
 
 // API: Points system processor (Add / Subtract points with reason)
+require_once __DIR__.'/../includes/cors_header.php';
 require_once __DIR__.'/../config/database.php';
 require_once __DIR__.'/../config/session.php';
 require_once __DIR__.'/../includes/helpers.php';

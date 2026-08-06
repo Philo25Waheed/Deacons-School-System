@@ -1,6 +1,7 @@
 <?php
 
 // API: Get classes by grade_id
+require_once __DIR__.'/../includes/cors_header.php';
 require_once __DIR__.'/../config/database.php';
 require_once __DIR__.'/../includes/helpers.php';
 

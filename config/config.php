@@ -7,9 +7,16 @@ if (! defined('APP_NAME')) {
 }
 
 if (! defined('BASE_URL')) {
-    $protocol = (! empty($_SERVER['HTTPS']) && $_SERVER['HTTPS'] !== 'off') ? 'https' : 'http';
-    $host = $_SERVER['HTTP_HOST'] ?? '127.0.0.1:8000';
-    define('BASE_URL', $protocol.'://'.$host.'/');
+    if (getenv('APP_URL')) {
+        $baseUrl = rtrim(getenv('APP_URL'), '/').'/';
+    } else {
+        $isHttps = (! empty($_SERVER['HTTPS']) && $_SERVER['HTTPS'] !== 'off')
+            || (isset($_SERVER['HTTP_X_FORWARDED_PROTO']) && $_SERVER['HTTP_X_FORWARDED_PROTO'] === 'https');
+        $protocol = $isHttps ? 'https' : 'http';
+        $host = $_SERVER['HTTP_HOST'] ?? '127.0.0.1:8000';
+        $baseUrl = $protocol.'://'.$host.'/';
+    }
+    define('BASE_URL', $baseUrl);
 }
 
 if (! defined('UPLOAD_PATH')) {

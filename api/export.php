@@ -1,6 +1,7 @@
 <?php
 
 // Export Students / Attendance to CSV (Excel readable)
+require_once __DIR__.'/../includes/cors_header.php';
 require_once __DIR__.'/../config/database.php';
 require_once __DIR__.'/../config/session.php';
 require_once __DIR__.'/../includes/auth_check.php';

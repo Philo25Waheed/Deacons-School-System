@@ -1,37 +1,38 @@
 {
     "version": 2,
-    "env": {
-        "PHP_VERSION": "8.4",
-        "APP_ENV": "production",
-        "APP_DEBUG": "true",
-        "APP_KEY": "base64:mdJSeoeHHmmRBRoz4/D8v+VStu9ZwlrzSw44ZFyijvU=",
-        "LOG_CHANNEL": "stderr",
-        "VIEW_COMPILED_PATH": "/tmp/views",
-        "SESSION_DRIVER": "cookie",
-        "CACHE_STORE": "array"
-    },
-    "build": {
-        "env": {
-            "PHP_VERSION": "8.4"
-        }
-    },
-    "functions": {
-        "api/index.php": {
-            "runtime": "vercel-php@0.8.0"
-        }
-    },
-    "routes": [
+    "name": "deacons-school-frontend",
+    "cleanUrls": true,
+    "headers": [
         {
-            "src": "/build/(.*)",
-            "dest": "/public/build/$1"
+            "source": "/(.*)",
+            "headers": [
+                { "key": "Access-Control-Allow-Credentials", "value": "true" },
+                { "key": "Access-Control-Allow-Origin", "value": "*" },
+                { "key": "Access-Control-Allow-Methods", "value": "GET,OPTIONS,PATCH,DELETE,POST,PUT" },
+                { "key": "Access-Control-Allow-Headers", "value": "X-CSRF-Token, X-Requested-With, Accept, Accept-Version, Content-Length, Content-MD5, Content-Type, Date, X-Api-Version" }
+            ]
+        }
+    ],
+    "rewrites": [
+        {
+            "source": "/assets/(.*)",
+            "destination": "/assets/$1"
         },
         {
-            "src": "/(css|js|assets|images|favicon.ico|robots.txt)(.*)",
-            "dest": "/public/$1$2"
+            "source": "/manifest.json",
+            "destination": "/manifest.json"
         },
         {
-            "src": "/(.*)",
-            "dest": "/api/index.php"
+            "source": "/sw.js",
+            "destination": "/sw.js"
+        },
+        {
+            "source": "/api/(.*)",
+            "destination": "https://deacons-school-system.onrender.com/api/$1"
+        },
+        {
+            "source": "/(.*)",
+            "destination": "https://deacons-school-system.onrender.com/$1"
         }
     ]
 }
