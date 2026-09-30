@@ -44,7 +44,7 @@ require_once __DIR__.'/../includes/navbar.php';
     <?php require_once __DIR__.'/../includes/sidebar.php'; ?>
 
     <main class="main-content">
-        <div style="display:flex; justify-content:space-between; align-items:center; margin-bottom:1.5rem;">
+        <div style="display:flex; justify-content:space-between; align-items:center; flex-wrap:wrap; gap:1rem; margin-bottom:1.5rem;">
             <div>
                 <h1 style="color:var(--royal-blue); font-weight:800;">طباعة كروت الشمامسة بالجملة 🖨️</h1>
                 <p style="color:var(--text-muted);">تصفية وتصميم كروت الصف أو المرحلة بالكامل للطباعة والتسليم</p>
@@ -53,7 +53,7 @@ require_once __DIR__.'/../includes/navbar.php';
         </div>
 
         <div class="glass-card" style="margin-bottom:1.5rem;">
-            <form action="" method="GET" style="display:flex; gap:1rem;">
+            <form action="" method="GET" style="display:flex; gap:1rem; flex-wrap:wrap;">
                 <select name="stage_id" class="form-control">
                     <option value="">كل المراحل</option>
                     <?php foreach ($stages as $stg) { ?>
@@ -68,8 +68,11 @@ require_once __DIR__.'/../includes/navbar.php';
             <?php foreach ($students as $stu) { ?>
                 <div class="id-card-wrapper" style="margin:0; width:100%;">
                     <div class="id-card-header">
-                        <h3 style="font-size:1.1rem;">مدرسة الشمامسة ⛪</h3>
-                        <p style="font-size:0.75rem; opacity:0.85;"><?= sanitize($stu['church_name']) ?></p>
+                        <div style="display:flex; align-items:center; justify-content:center; gap:0.4rem;">
+                            <img src="<?= BASE_URL ?>assets/images/logo.png" alt="لوجو المدرسة" style="width:24px; height:24px; object-fit:contain;">
+                            <h3 style="font-size:1.05rem; margin:0;">مدرسة الشهيد إسطفانوس</h3>
+                        </div>
+                        <p style="font-size:0.75rem; opacity:0.85; margin-top:0.25rem;"><?= CHURCH_NAME ?></p>
                     </div>
 
                     <div class="id-card-body">

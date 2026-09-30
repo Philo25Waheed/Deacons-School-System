@@ -34,10 +34,10 @@ require_once __DIR__.'/../includes/navbar.php';
     <?php require_once __DIR__.'/../includes/sidebar.php'; ?>
 
     <main class="main-content">
-        <div style="display:flex; justify-content:space-between; align-items:center; margin-bottom:2rem;">
+        <div style="display:flex; justify-content:space-between; align-items:center; flex-wrap:wrap; gap:1rem; margin-bottom:2rem;">
             <div>
                 <h1 style="color:var(--royal-blue); font-weight:800;">أهلاً بك يا شماس، <?= sanitize($_SESSION['user']['full_name']) ?> ⛪</h1>
-                <p style="color:var(--text-muted);">مدرسة الشمامسة - الكنيسة القبطية الأرثوذكسية</p>
+                <p style="color:var(--text-muted);">مدرسة الشهيد إسطفانوس - الكنيسة القبطية الأرثوذكسية</p>
             </div>
             <a href="<?= BASE_URL ?>student/card.php" class="btn btn-gold">
                 🪪 كارت الشماس الرقمي
@@ -47,8 +47,8 @@ require_once __DIR__.'/../includes/navbar.php';
         <div class="stats-grid">
             <div class="glass-card stat-card">
                 <div>
-                    <div style="color:var(--text-muted); font-size:0.9rem; font-weight:700;">رصيد نقاط التشجيع</div>
-                    <div class="stat-val" style="color:var(--gold);">⭐ <?= number_format($pointsBalance) ?></div>
+                    <div style="color:var(--text-muted); font-size:0.9rem; font-weight:700;">رصيد الطايو والتشجيع</div>
+                    <div class="stat-val" style="color:var(--gold);">⭐ <?= number_format($pointsBalance) ?> طايو</div>
                 </div>
                 <div class="stat-icon" style="background:var(--gold-glow); color:var(--gold);">🏆</div>
             </div>

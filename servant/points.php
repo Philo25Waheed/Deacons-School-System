@@ -1,5 +1,5 @@
 <?php
-$pageTitle = 'نظام النقاط والتشجيع';
+$pageTitle = 'نظام الطايو والتشجيع';
 require_once __DIR__.'/../config/database.php';
 require_once __DIR__.'/../config/session.php';
 require_once __DIR__.'/../includes/auth_check.php';
@@ -11,8 +11,31 @@ require_role('servant', 'admin');
 $db = getDB();
 $selectedStudentId = filter_input(INPUT_GET, 'student_id', FILTER_VALIDATE_INT);
 
-// Fetch all active students for dropdown
-$students = $db->query("SELECT id, full_name, qr_code_token FROM users WHERE role = 'student' AND status = 'active' ORDER BY full_name ASC")->fetchAll();
+$accessibleClassIds = get_user_accessible_class_ids();
+
+// Fetch active students for dropdown (scoped if servant)
+$studentsQuery = "
+    SELECT u.id, u.full_name, u.qr_code_token, c.name_ar as class_name, g.name_ar as grade_name
+    FROM users u
+    LEFT JOIN classes c ON u.class_id = c.id
+    LEFT JOIN grades g ON u.grade_id = g.id
+    WHERE u.role = 'student' AND u.status = 'active'
+";
+$studentsParams = [];
+
+if ($accessibleClassIds !== null) {
+    if (empty($accessibleClassIds)) {
+        $studentsQuery .= ' AND 1=0';
+    } else {
+        $inStudents = implode(',', array_fill(0, count($accessibleClassIds), '?'));
+        $studentsQuery .= " AND u.class_id IN ({$inStudents})";
+        $studentsParams = $accessibleClassIds;
+    }
+}
+$studentsQuery .= ' ORDER BY u.full_name ASC';
+$stmtStudents = $db->prepare($studentsQuery);
+$stmtStudents->execute($studentsParams);
+$students = $stmtStudents->fetchAll();
 
 // Leaderboard Top 10
 $leaderboard = $db->query("
@@ -35,12 +58,12 @@ require_once __DIR__.'/../includes/navbar.php';
     <?php require_once __DIR__.'/../includes/sidebar.php'; ?>
 
     <main class="main-content">
-        <h1 style="color:var(--royal-blue); font-weight:800; margin-bottom:1.5rem;">نظام تشجيع النقاط ⭐</h1>
+        <h1 style="color:var(--royal-blue); font-weight:800; margin-bottom:1.5rem;">نظام تشجيع الطايو ⭐</h1>
 
         <div style="display:grid; grid-template-columns: 1fr 1fr; gap:1.5rem; margin-bottom:2rem;">
             <!-- Points Form -->
             <div class="glass-card">
-                <h3 style="color:var(--royal-blue); margin-bottom:1rem;">إضافة / خصم نقاط لشماس</h3>
+                <h3 style="color:var(--royal-blue); margin-bottom:1rem;">إضافة / خصم طايو لشماس</h3>
                 
                 <form id="pointsForm" onsubmit="handlePointsSubmit(event)">
                     <?= csrf_field() ?>
@@ -58,14 +81,14 @@ require_once __DIR__.'/../includes/navbar.php';
 
                     <div style="display:grid; grid-template-columns: 1fr 1fr; gap:1rem;">
                         <div class="form-group">
-                            <label class="form-label">نوع النقط *</label>
+                            <label class="form-label">نوع العملية *</label>
                             <select name="type" class="form-control" required>
-                                <option value="positive">إضافة (+) نقاط تشجيعية</option>
-                                <option value="negative">خصم (-) نقاط مخصومة</option>
+                                <option value="positive">إضافة (+) طايو تشجيعي</option>
+                                <option value="negative">خصم (-) طايو مخصوم</option>
                             </select>
                         </div>
                         <div class="form-group">
-                            <label class="form-label">عدد النقاط *</label>
+                            <label class="form-label">عدد الطايو *</label>
                             <input type="number" name="points" class="form-control" value="5" min="1" max="100" required>
                         </div>
                     </div>
@@ -81,10 +104,10 @@ require_once __DIR__.'/../includes/navbar.php';
 
             <!-- Leaderboard -->
             <div class="glass-card">
-                <h3 style="color:var(--gold); font-weight:800; margin-bottom:1rem;">🏆 لوحة المتفوقين (Top 10 Leaderboard)</h3>
+                <h3 style="color:var(--gold); font-weight:800; margin-bottom:1rem;">🏆 لوحة المتفوقين في الطايو (Top 10 Leaderboard)</h3>
                 <div style="display:flex; flex-direction:column; gap:0.75rem;">
                     <?php foreach ($leaderboard as $idx => $lead) { ?>
-                        <div style="display:flex; align-items:center; justify-content:space-between; padding:0.75rem; background:var(--bg-primary); border-radius:var(--radius-sm);">
+                        <div style="display:flex; align-items:center; justify-content:space-between; flex-wrap:wrap; gap:0.5rem; padding:0.75rem; background:var(--bg-primary); border-radius:var(--radius-sm);">
                             <div style="display:flex; align-items:center; gap:0.75rem;">
                                 <div style="font-weight:800; font-size:1.2rem; color:var(--royal-blue); width:24px;">#<?= $idx + 1 ?></div>
                                 <div>
@@ -92,7 +115,7 @@ require_once __DIR__.'/../includes/navbar.php';
                                     <div style="font-size:0.75rem; color:var(--text-muted);"><?= sanitize($lead['stage'] ?? '') ?> - <?= sanitize($lead['grade'] ?? '') ?></div>
                                 </div>
                             </div>
-                            <div class="badge badge-gold" style="font-size:0.95rem;">⭐ <?= number_format($lead['total_points']) ?> نقطة</div>
+                            <div class="badge badge-gold" style="font-size:0.95rem;">⭐ <?= number_format($lead['total_points']) ?> طايو</div>
                         </div>
                     <?php } ?>
                 </div>
@@ -114,10 +137,10 @@ function handlePointsSubmit(e) {
     .then(res => res.json())
     .then(data => {
         if (data.status === 'success') {
-            alert(data.message + ' - رصيد النقاط الجديد: ' + data.new_total);
+            alert(data.message + ' - رصيد الطايو الجديد: ' + data.new_total);
             window.location.reload();
         } else {
-            alert(data.message || 'حدث خطأ في حفظ النقاط');
+            alert(data.message || 'حدث خطأ في حفظ الطايو');
         }
     })
     .catch(err => alert('خطأ بالاتصال بالسيرفر'));

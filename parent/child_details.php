@@ -14,6 +14,17 @@ if (! $studentId) {
     exit('لم يتم التمكن من تحديد الابن المطلوب.');
 }
 
+// IDOR Protection: Verify that current parent is linked to this student
+if ($_SESSION['user']['role'] === 'parent') {
+    $authStmt = $db->prepare('SELECT 1 FROM parent_student WHERE parent_id = ? AND student_id = ?');
+    $authStmt->execute([$_SESSION['user']['id'], $studentId]);
+    if (! $authStmt->fetchColumn()) {
+        $_SESSION['flash_error'] = 'غير مصرح لك بالوصول لبيانات هذا الطالب.';
+        header('Location: '.BASE_URL.'parent/index.php');
+        exit;
+    }
+}
+
 // Fetch student details
 $stuStmt = $db->prepare('
     SELECT u.*, s.name_ar as stage, g.name_ar as grade, c.name_ar as class
@@ -25,6 +36,10 @@ $stuStmt = $db->prepare('
 ');
 $stuStmt->execute([$studentId]);
 $child = $stuStmt->fetch();
+
+if (! $child) {
+    exit('بيانات الشماس غير موجودة.');
+}
 
 // Attendance history
 $attendance = $db->prepare('SELECT * FROM attendance WHERE student_id = ? ORDER BY attendance_date DESC');
@@ -53,6 +68,17 @@ $evals = $db->prepare('SELECT * FROM evaluations WHERE student_id = ? ORDER BY i
 $evals->execute([$studentId]);
 $evalList = $evals->fetchAll();
 
+// Event & Trip registrations
+$eventsStmt = $db->prepare('
+    SELECT er.*, e.title as event_title, e.event_date, e.location, e.event_type, e.price
+    FROM event_registrations er
+    JOIN events e ON er.event_id = e.id
+    WHERE er.user_id = ?
+    ORDER BY e.event_date DESC
+');
+$eventsStmt->execute([$studentId]);
+$childEvents = $eventsStmt->fetchAll();
+
 require_once __DIR__.'/../includes/header.php';
 require_once __DIR__.'/../includes/navbar.php';
 ?>
@@ -61,12 +87,15 @@ require_once __DIR__.'/../includes/navbar.php';
     <?php require_once __DIR__.'/../includes/sidebar.php'; ?>
 
     <main class="main-content">
-        <div style="display:flex; justify-content:space-between; align-items:center; margin-bottom:1.5rem;">
+        <div style="display:flex; justify-content:space-between; align-items:center; flex-wrap:wrap; gap:1rem; margin-bottom:1.5rem;">
             <div>
                 <h1 style="color:var(--royal-blue); font-weight:800;">تقرير متابعة الشماس: <?= sanitize($child['full_name']) ?></h1>
                 <p style="color:var(--text-muted);"><?= sanitize($child['stage'] ?? '') ?> - <?= sanitize($child['grade'] ?? '') ?> (رتبة: <?= sanitize($child['deacon_rank'] ?? 'شماس') ?>)</p>
             </div>
-            <a href="<?= BASE_URL ?>student/card.php?id=<?= $child['id'] ?>" class="btn btn-gold">🖨️ طباعة كارت الشماس</a>
+            <div style="display:flex; gap:0.75rem; flex-wrap:wrap;">
+                <a href="<?= BASE_URL ?>parent/report.php?id=<?= $child['id'] ?>" class="btn btn-primary" style="font-weight:800;">📊 التقرير الشامل الرسمي</a>
+                <a href="<?= BASE_URL ?>student/card.php?id=<?= $child['id'] ?>" class="btn btn-gold">🖨️ طباعة كارت الشماس</a>
+            </div>
         </div>
 
         <!-- Attendance & Points Summary -->
@@ -96,12 +125,12 @@ require_once __DIR__.'/../includes/navbar.php';
             </div>
 
             <div class="glass-card">
-                <h3 style="color:var(--gold); margin-bottom:1rem;">سجل النقاط والتشجيع</h3>
+                <h3 style="color:var(--gold); margin-bottom:1rem;">سجل الطايو والتشجيع</h3>
                 <div class="table-responsive">
                     <table class="custom-table">
                         <thead>
                             <tr>
-                                <th>النقاط</th>
+                                <th>الطايو</th>
                                 <th>السبب</th>
                                 <th>التاريخ</th>
                             </tr>
@@ -111,7 +140,7 @@ require_once __DIR__.'/../includes/navbar.php';
                                 <tr>
                                     <td>
                                         <span class="badge <?= $p['type'] === 'positive' ? 'badge-success' : 'badge-danger' ?>">
-                                            <?= $p['type'] === 'positive' ? '+' : '-' ?><?= $p['points'] ?>
+                                            <?= $p['type'] === 'positive' ? '+' : '-' ?><?= $p['points'] ?> طايو
                                         </span>
                                     </td>
                                     <td><?= sanitize($p['reason']) ?></td>
@@ -134,6 +163,7 @@ require_once __DIR__.'/../includes/navbar.php';
                             <th>عنوان الامتحان</th>
                             <th>الخادم المسؤول</th>
                             <th>الدرجة المحصلة</th>
+                            <th>النسبة المئوية</th>
                             <th>حالة التصحيح</th>
                             <th>ملاحظات الخادم</th>
                             <th>تاريخ الاختبار</th>
@@ -142,21 +172,28 @@ require_once __DIR__.'/../includes/navbar.php';
                     <tbody>
                         <?php if (empty($childExams)) { ?>
                             <tr>
-                                <td colspan="6" style="text-align:center; color:var(--text-muted);">لا توجد نتائج اختبارات مسجلة للابن حتى الآن.</td>
+                                <td colspan="7" style="text-align:center; color:var(--text-muted);">لا توجد نتائج اختبارات مسجلة للابن حتى الآن.</td>
                             </tr>
                         <?php } else { ?>
-                            <?php foreach ($childExams as $ce) { ?>
+                            <?php foreach ($childExams as $ce) {
+                                $pct = ($ce['total_marks'] > 0) ? round(($ce['score'] / $ce['total_marks']) * 100) : 0;
+                                ?>
                                 <tr>
                                     <td><strong><?= sanitize($ce['exam_title']) ?></strong></td>
                                     <td><?= sanitize($ce['servant_name'] ?? 'الخادم المسؤول') ?></td>
                                     <td>
-                                        <strong style="color:var(--royal-blue); font-size:1.1rem;"><?= $ce['score'] ?> / <?= $ce['total_marks'] ?></strong>
+                                        <strong style="color:var(--royal-blue); font-size:1.15rem;"><?= $ce['score'] ?> / <?= $ce['total_marks'] ?></strong>
+                                    </td>
+                                    <td>
+                                        <span class="badge <?= $pct >= 85 ? 'badge-success' : ($pct >= 65 ? 'badge-info' : 'badge-warning') ?>">
+                                            <?= $pct ?>% (<?= $pct >= 85 ? 'ممتاز 🌟' : ($pct >= 75 ? 'جيد جداً' : ($pct >= 65 ? 'جيد' : 'يحتاج مراجعة')) ?>)
+                                        </span>
                                     </td>
                                     <td>
                                         <?php if ($ce['status'] === 'needs_grading') { ?>
                                             <span class="badge badge-warning">جاري تصحيح السؤال المقالي ⏳</span>
                                         <?php } else { ?>
-                                            <span class="badge badge-success">مكتمل ومصمم ✅</span>
+                                            <span class="badge badge-success">تم اعتماد النتيجة ✅</span>
                                         <?php } ?>
                                     </td>
                                     <td><?= sanitize($ce['servant_feedback'] ?? '-') ?></td>
@@ -170,7 +207,7 @@ require_once __DIR__.'/../includes/navbar.php';
         </div>
 
         <!-- Evaluations -->
-        <div class="glass-card">
+        <div class="glass-card" style="margin-bottom:1.5rem;">
             <h3 style="color:var(--royal-blue); margin-bottom:1rem;">التقييمات السلوكية والروحية</h3>
             <div class="table-responsive">
                 <table class="custom-table">
@@ -192,6 +229,55 @@ require_once __DIR__.'/../includes/navbar.php';
                                 <td><?= sanitize($ev['notes'] ?? '-') ?></td>
                                 <td><?= format_arabic_date($ev['evaluation_date']) ?></td>
                             </tr>
+                        <?php } ?>
+                    </tbody>
+                </table>
+            </div>
+        </div>
+
+        <!-- Trips & Events Registrations -->
+        <div class="glass-card">
+            <h3 style="color:var(--royal-blue); margin-bottom:1rem; display:flex; align-items:center; gap:0.5rem;">
+                <span>🚌</span> الرحلات والأنشطة المشترك بها الابن
+            </h3>
+            <div class="table-responsive">
+                <table class="custom-table">
+                    <thead>
+                        <tr>
+                            <th>اسم الفعالية / الرحلة</th>
+                            <th>تاريخ الرحلة</th>
+                            <th>المكان</th>
+                            <th>عدد المقاعد</th>
+                            <th>حالة الحجز</th>
+                            <th>تاريخ التسجيل</th>
+                        </tr>
+                    </thead>
+                    <tbody>
+                        <?php if (empty($childEvents)) { ?>
+                            <tr>
+                                <td colspan="6" style="text-align:center; padding:1.5rem; color:var(--text-muted);">
+                                    لم يقم الابن بالحجز في أي رحلات أو مناسبات حتى الآن.
+                                </td>
+                            </tr>
+                        <?php } else { ?>
+                            <?php foreach ($childEvents as $ce) { ?>
+                                <tr>
+                                    <td><strong><?= sanitize($ce['event_title']) ?></strong></td>
+                                    <td><?= format_arabic_date($ce['event_date']) ?></td>
+                                    <td><?= sanitize($ce['location'] ?? '-') ?></td>
+                                    <td><span class="badge badge-info"><?= $ce['seats_count'] ?> مقاعد</span></td>
+                                    <td>
+                                        <?php if ($ce['status'] === 'confirmed') { ?>
+                                            <span class="badge badge-success">حجز مؤكد ✅</span>
+                                        <?php } elseif ($ce['status'] === 'cancelled') { ?>
+                                            <span class="badge badge-danger">حجز ملغي ❌</span>
+                                        <?php } else { ?>
+                                            <span class="badge badge-warning">قيد المراجعة ⏳</span>
+                                        <?php } ?>
+                                    </td>
+                                    <td><?= format_arabic_date(substr($ce['created_at'], 0, 10)) ?></td>
+                                </tr>
+                            <?php } ?>
                         <?php } ?>
                     </tbody>
                 </table>

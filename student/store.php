@@ -1,5 +1,5 @@
 <?php
-$pageTitle = 'متجر استبدال النقاط';
+$pageTitle = 'معرض الطايو';
 require_once __DIR__.'/../config/database.php';
 require_once __DIR__.'/../config/session.php';
 require_once __DIR__.'/../includes/auth_check.php';
@@ -10,56 +10,109 @@ require_role('student', 'admin');
 
 $db = getDB();
 $studentId = $_SESSION['user']['id'];
+$isStoreEnabled = is_store_enabled($db);
+$isAdmin = ($_SESSION['user']['role'] ?? '') === 'admin';
 
 // Handle Point Redemption Request
 if ($_SERVER['REQUEST_METHOD'] === 'POST' && isset($_POST['redeem_id'])) {
+    if (! $isStoreEnabled && ! $isAdmin) {
+        $_SESSION['flash_error'] = 'عذراً، معرض الطايو مغلق حالياً بأمر إدارة المدرسة ولا يمكن استبدال الهدايا.';
+        header('Location: '.BASE_URL.'student/store.php');
+        exit;
+    }
+
     $csrfToken = $_POST['csrf_token'] ?? '';
     if (verify_csrf_token($csrfToken)) {
         $rewardId = filter_input(INPUT_POST, 'redeem_id', FILTER_VALIDATE_INT);
 
-        // Fetch reward cost & stock
-        $stmtR = $db->prepare('SELECT * FROM rewards WHERE id = ?');
-        $stmtR->execute([$rewardId]);
-        $reward = $stmtR->fetch();
-
-        // Calculate student current points
-        $totalPoints = $db->prepare("SELECT COALESCE(SUM(CASE WHEN type = 'positive' THEN points ELSE -points END), 0) FROM points WHERE student_id = ?");
-        $totalPoints->execute([$studentId]);
-        $myBalance = $totalPoints->fetchColumn();
-
-        if ($reward && $reward['stock_quantity'] > 0) {
-            if ($myBalance >= $reward['points_cost']) {
-                // Deduct points
-                $db->prepare("INSERT INTO points (student_id, servant_id, points, type, reason) VALUES (?, 1, ?, 'negative', ?)")
-                    ->execute([$studentId, $reward['points_cost'], "استبدال مكافأة: {$reward['title']}"]);
-
-                // Record reward order
-                $db->prepare("INSERT INTO reward_orders (reward_id, student_id, points_spent, status) VALUES (?, ?, ?, 'pending')")
-                    ->execute([$rewardId, $studentId, $reward['points_cost']]);
-
-                // Reduce stock
-                $db->prepare('UPDATE rewards SET stock_quantity = stock_quantity - 1 WHERE id = ?')->execute([$rewardId]);
-
-                $_SESSION['flash_success'] = "مبروك! تم تقديم طلب استبدال الهدية ({$reward['title']}) بنجاح. يرجى استلامها من الخادم الكنسي المسؤول.";
-            } else {
-                $_SESSION['flash_error'] = "رصيد نقاطك الحالي ({$myBalance} نقطة) لا يكفي لاستبدال هذه الهدية (تتطلب {$reward['points_cost']} نقطة).";
-            }
+        if (! $rewardId) {
+            $_SESSION['flash_error'] = 'الهدية المطلوبة غير صحيحة.';
+            header('Location: '.BASE_URL.'student/store.php');
+            exit;
         }
+
+        $db->beginTransaction();
+        try {
+            // 1. Fetch reward with stock check
+            $stmtR = $db->prepare('SELECT * FROM rewards WHERE id = ?');
+            $stmtR->execute([$rewardId]);
+            $reward = $stmtR->fetch();
+
+            if (! $reward || (int) $reward['stock_quantity'] <= 0) {
+                $db->rollBack();
+                $_SESSION['flash_error'] = 'عذراً، هذه الهدية غير متوفرة بالمعرض حالياً أو نفدت كميتها.';
+                header('Location: '.BASE_URL.'student/store.php');
+                exit;
+            }
+
+            // 2. Calculate student current balance inside transaction
+            $totalPoints = $db->prepare("SELECT COALESCE(SUM(CASE WHEN type = 'positive' THEN points ELSE -points END), 0) FROM points WHERE student_id = ?");
+            $totalPoints->execute([$studentId]);
+            $myBalance = (int) $totalPoints->fetchColumn();
+
+            if ($myBalance < (int) $reward['points_cost']) {
+                $db->rollBack();
+                $_SESSION['flash_error'] = "رصيد طايو الحالي ({$myBalance} طايو) لا يكفي لاستبدال هذه الهدية (تتطلب {$reward['points_cost']} طايو).";
+                header('Location: '.BASE_URL.'student/store.php');
+                exit;
+            }
+
+            // 3. Atomic stock reduction ensuring stock > 0
+            $stockUpdate = $db->prepare('UPDATE rewards SET stock_quantity = stock_quantity - 1 WHERE id = ? AND stock_quantity > 0');
+            $stockUpdate->execute([$rewardId]);
+
+            if ($stockUpdate->rowCount() === 0) {
+                $db->rollBack();
+                $_SESSION['flash_error'] = 'عذراً، لقد نفدت كمية هذه الهدية للتو.';
+                header('Location: '.BASE_URL.'student/store.php');
+                exit;
+            }
+
+            // 4. Deduct points
+            $db->prepare("INSERT INTO points (student_id, servant_id, points, type, reason) VALUES (?, 1, ?, 'negative', ?)")
+                ->execute([$studentId, $reward['points_cost'], "استبدال هدية من معرض الطايو: {$reward['title']}"]);
+
+            // 5. Record reward order
+            $db->prepare("INSERT INTO reward_orders (reward_id, student_id, points_spent, status) VALUES (?, ?, ?, 'pending')")
+                ->execute([$rewardId, $studentId, $reward['points_cost']]);
+
+            $db->commit();
+            $_SESSION['flash_success'] = "مبروك! تم تقديم طلب استبدال الهدية ({$reward['title']}) بنجاح. يرجى استلامها من الخادم الكنسي المسؤول.";
+
+        } catch (Exception $e) {
+            if ($db->inTransaction()) {
+                $db->rollBack();
+            }
+            error_log('Store redemption error: '.$e->getMessage());
+            $_SESSION['flash_error'] = 'حدث خطأ أثناء معالجة طلب الاستبدال. يرجى المحاولة مرة أخرى.';
+        }
+
         header('Location: '.BASE_URL.'student/store.php');
         exit;
     }
 }
 
 // Student total points
-$myPoints = $db->query("SELECT COALESCE(SUM(CASE WHEN type = 'positive' THEN points ELSE -points END), 0) FROM points WHERE student_id = $studentId")->fetchColumn();
-$rewards = $db->query('SELECT * FROM rewards WHERE stock_quantity > 0 ORDER BY points_cost ASC')->fetchAll();
+try {
+    $pointsStmt = $db->prepare("SELECT COALESCE(SUM(CASE WHEN type = 'positive' THEN points ELSE -points END), 0) FROM points WHERE student_id = ?");
+    $pointsStmt->execute([$studentId]);
+    $myPoints = $pointsStmt->fetchColumn();
 
-$myOrders = $db->query("
-    SELECT o.*, r.title as reward_name
-    FROM reward_orders o
-    JOIN rewards r ON o.reward_id = r.id
-    WHERE o.student_id = $studentId ORDER BY o.id DESC
-")->fetchAll();
+    $rewards = $db->query('SELECT * FROM rewards WHERE stock_quantity > 0 ORDER BY points_cost ASC')->fetchAll();
+
+    $ordersStmt = $db->prepare('
+        SELECT o.*, r.title as reward_name
+        FROM reward_orders o
+        JOIN rewards r ON o.reward_id = r.id
+        WHERE o.student_id = ? ORDER BY o.id DESC
+    ');
+    $ordersStmt->execute([$studentId]);
+    $myOrders = $ordersStmt->fetchAll();
+} catch (Throwable $e) {
+    $myPoints = $myPoints ?? 0;
+    $rewards = [];
+    $myOrders = [];
+}
 
 require_once __DIR__.'/../includes/header.php';
 require_once __DIR__.'/../includes/navbar.php';
@@ -69,13 +122,13 @@ require_once __DIR__.'/../includes/navbar.php';
     <?php require_once __DIR__.'/../includes/sidebar.php'; ?>
 
     <main class="main-content">
-        <div style="display:flex; justify-content:space-between; align-items:center; margin-bottom:1.5rem;">
+        <div style="display:flex; justify-content:space-between; align-items:center; flex-wrap:wrap; gap:1rem; margin-bottom:1.5rem;">
             <div>
-                <h1 style="color:var(--royal-blue); font-weight:800;">متجر استبدال الهدايا والمكافآت 🛍️</h1>
-                <p style="color:var(--text-muted);">استبدل نقاط مواظبتك وحفظك بأفضل الهدايا التذكارية</p>
+                <h1 style="color:var(--royal-blue); font-weight:800;">معرض الطايو 🛍️</h1>
+                <p style="color:var(--text-muted);">استبدل رصيدك من الطايو بأفضل الهدايا التذكارية من المعرض</p>
             </div>
             <div class="badge badge-gold" style="font-size:1.2rem; padding:0.75rem 1.25rem;">
-                رصيدك الحالي: ⭐ <?= number_format($myPoints) ?> نقطة
+                رصيدك الحالي: ⭐ <?= number_format($myPoints) ?> طايو
             </div>
         </div>
 
@@ -93,24 +146,49 @@ require_once __DIR__.'/../includes/navbar.php';
             </div>
         <?php } ?>
 
-        <!-- Catalog Grid -->
-        <div style="display:grid; grid-template-columns: repeat(auto-fit, minmax(280px, 1fr)); gap:1.5rem; margin-bottom:2rem;">
-            <?php foreach ($rewards as $rw) { ?>
-                <div class="glass-card" style="text-align:center;">
-                    <div style="font-size:3rem; margin-bottom:0.5rem;">🎁</div>
-                    <h3 style="color:var(--royal-blue); font-weight:800;"><?= sanitize($rw['title']) ?></h3>
-                    <p style="color:var(--text-muted); font-size:0.85rem; margin-bottom:1rem;"><?= sanitize($rw['description'] ?? '') ?></p>
-                    
-                    <form action="" method="POST">
-                        <?= csrf_field() ?>
-                        <input type="hidden" name="redeem_id" value="<?= $rw['id'] ?>">
-                        <button type="submit" class="btn btn-gold" style="width:100%;" <?= ($myPoints < $rw['points_cost']) ? 'disabled' : '' ?>>
-                            استبدال مقابل ⭐ <?= $rw['points_cost'] ?> نقطة
-                        </button>
-                    </form>
+        <?php if ($isAdmin && ! $isStoreEnabled) { ?>
+            <div class="badge badge-warning" style="width:100%; padding:1rem; margin-bottom:1.5rem; text-align:center; font-size:0.95rem; line-height:1.6;">
+                ⚠️ <strong>تنبيه للمدير:</strong> معرض الطايو مخفي ومغلق حالياً عن الشمامسة. بصفتك مديراً، يمكنك فقط معاينة الصفحة. لتفعيله وإظهاره، توجه إلى <a href="<?= BASE_URL ?>admin/rewards.php" style="color:inherit; font-weight:800; text-decoration:underline;">إدارة معرض الطايو</a>.
+            </div>
+        <?php } ?>
+
+        <?php if (! $isStoreEnabled && ! $isAdmin) { ?>
+            <!-- Store Closed Friendly Notice -->
+            <div class="glass-card" style="text-align:center; padding:3.5rem 1.5rem; max-width:650px; margin:2rem auto; border-top:4px solid var(--gold);">
+                <div style="font-size:3.5rem; margin-bottom:1rem;">🔒🛍️</div>
+                <h2 style="color:var(--royal-blue); font-weight:800; margin-bottom:1rem;">معرض الطايو مغلق مؤقتاً</h2>
+                <p style="color:var(--text-muted); font-size:1.05rem; line-height:1.8; margin-bottom:1.75rem;">
+                    معرض استبدال الهدايا مغلق حالياً من قِبل إدارة المدرسة. سيتم فتح المعرض وتفعيله قريباً، تابع الإعلانات والتنبيهات لمعرفة موعد الافتتاح القادم!
+                </p>
+                <div style="display:flex; justify-content:center; gap:1rem; flex-wrap:wrap;">
+                    <a href="<?= BASE_URL ?>student/index.php" class="btn btn-primary" style="padding:0.75rem 1.75rem;">
+                        🏠 العودة للرئيسية
+                    </a>
+                    <a href="<?= BASE_URL ?>student/points.php" class="btn btn-secondary" style="padding:0.75rem 1.75rem;">
+                        🏆 رصيد الطايو وأوسمتي
+                    </a>
                 </div>
-            <?php } ?>
-        </div>
+            </div>
+        <?php } else { ?>
+            <!-- Catalog Grid -->
+            <div style="display:grid; grid-template-columns: repeat(auto-fit, minmax(280px, 1fr)); gap:1.5rem; margin-bottom:2rem;">
+                <?php foreach ($rewards as $rw) { ?>
+                    <div class="glass-card" style="text-align:center;">
+                        <div style="font-size:3rem; margin-bottom:0.5rem;">🎁</div>
+                        <h3 style="color:var(--royal-blue); font-weight:800;"><?= sanitize($rw['title']) ?></h3>
+                        <p style="color:var(--text-muted); font-size:0.85rem; margin-bottom:1rem;"><?= sanitize($rw['description'] ?? '') ?></p>
+                        
+                        <form action="" method="POST">
+                            <?= csrf_field() ?>
+                            <input type="hidden" name="redeem_id" value="<?= $rw['id'] ?>">
+                            <button type="submit" class="btn btn-gold" style="width:100%;" <?= ($myPoints < $rw['points_cost']) ? 'disabled' : '' ?>>
+                                استبدال مقابل ⭐ <?= $rw['points_cost'] ?> طايو
+                            </button>
+                        </form>
+                    </div>
+                <?php } ?>
+            </div>
+        <?php } ?>
 
         <!-- My Redemption Orders -->
         <div class="glass-card">
@@ -120,7 +198,7 @@ require_once __DIR__.'/../includes/navbar.php';
                     <thead>
                         <tr>
                             <th>الهدية</th>
-                            <th>النقاط المستبدلة</th>
+                            <th>الطايو المستبدل</th>
                             <th>حالة التسليم</th>
                             <th>تاريخ الطلب</th>
                         </tr>
@@ -129,7 +207,7 @@ require_once __DIR__.'/../includes/navbar.php';
                         <?php foreach ($myOrders as $ord) { ?>
                             <tr>
                                 <td><strong><?= sanitize($ord['reward_name']) ?></strong></td>
-                                <td><span class="badge badge-gold">⭐ <?= $ord['points_spent'] ?></span></td>
+                                <td><span class="badge badge-gold">⭐ <?= $ord['points_spent'] ?> طايو</span></td>
                                 <td>
                                     <?php if ($ord['status'] === 'fulfilled') { ?>
                                         <span class="badge badge-success">تم التسليم بنجاح ✅</span>

@@ -26,19 +26,24 @@ $stmt = $db->prepare('
 $stmt->execute([$userId]);
 $user = $stmt->fetch();
 
+if (! $user) {
+    header('Location: '.BASE_URL.'authentication/logout.php');
+    exit;
+}
+
 if ($_SERVER['REQUEST_METHOD'] === 'POST') {
     $csrfToken = $_POST['csrf_token'] ?? '';
     if (! verify_csrf_token($csrfToken)) {
         $error = 'رمز CSRF غير صالح.';
     } else {
-        $fullName = sanitize($_POST['full_name']);
-        $phone = sanitize($_POST['phone']);
-        $email = sanitize($_POST['email']);
-        $gender = sanitize($_POST['gender'] ?? $user['gender']);
-        $address = sanitize($_POST['address']);
-        $dob = sanitize($_POST['dob']);
+        $fullName = sanitize($_POST['full_name'] ?? '');
+        $phone = sanitize($_POST['phone'] ?? '');
+        $email = sanitize($_POST['email'] ?? '');
+        $gender = sanitize($_POST['gender'] ?? ($user['gender'] ?? 'male'));
+        $address = sanitize($_POST['address'] ?? '');
+        $dob = sanitize($_POST['dob'] ?? '');
 
-        $deaconRank = ($user['role'] === 'student' && $gender === 'male') ? sanitize($_POST['deacon_rank'] ?? 'إبصالتس (مرتل)') : null;
+        $deaconRank = (($user['role'] ?? '') === 'student' && $gender === 'male') ? sanitize($_POST['deacon_rank'] ?? 'إبصالتس (مرتل)') : null;
 
         $fatherName = sanitize($_POST['father_name'] ?? '');
         $fatherPhone = sanitize($_POST['father_phone'] ?? '');
@@ -50,7 +55,7 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST') {
         $confirmPassword = $_POST['confirm_password'] ?? '';
 
         if (empty($fullName) || empty($phone)) {
-            $error = 'يرجى أدخال الاسم ورقم الهاتف.';
+            $error = 'يرجى إدخال الاسم ورقم الهاتف.';
         } else {
             // Check email or phone duplicate for other users
             $dupStmt = $db->prepare("SELECT id FROM users WHERE (phone = ? OR (email IS NOT NULL AND email = ? AND email != '')) AND id != ?");
@@ -58,45 +63,88 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST') {
             if ($dupStmt->fetch()) {
                 $error = 'رقم الهاتف أو البريد الإلكتروني مستخدم بالفعل بحساب آخر.';
             } else {
-                $profilePic = $user['profile_pic'];
-
-                // Profile Image Upload
-                if (isset($_FILES['profile_pic']) && $_FILES['profile_pic']['error'] === UPLOAD_ERR_OK) {
+                // Profile Pic Upload
+                $profilePic = $user['profile_pic'] ?? null;
+                if (empty($error) && isset($_FILES['profile_pic']) && $_FILES['profile_pic']['error'] === UPLOAD_ERR_OK) {
+                    $tmpPath = $_FILES['profile_pic']['tmp_name'];
                     $ext = strtolower(pathinfo($_FILES['profile_pic']['name'], PATHINFO_EXTENSION));
-                    $allowed = ['jpg', 'jpeg', 'png', 'webp'];
-                    if (in_array($ext, $allowed)) {
-                        $profilePic = 'avatar_'.time().'_'.rand(1000, 9999).'.'.$ext;
-                        move_uploaded_file($_FILES['profile_pic']['tmp_name'], UPLOAD_PATH.'profile/'.$profilePic);
+                    $allowedExts = ['jpg', 'jpeg', 'png', 'webp'];
+                    $allowedMimes = ['image/jpeg', 'image/png', 'image/webp'];
+                    $finfoMime = function_exists('mime_content_type') ? mime_content_type($tmpPath) : 'image/jpeg';
+
+                    if (in_array($ext, $allowedExts, true) && in_array($finfoMime, $allowedMimes, true) && @getimagesize($tmpPath) !== false) {
+                        $profilePic = 'avatar_'.$userId.'_'.time().'.'.$ext;
+                        $targetDir = __DIR__.'/uploads/profile/';
+                        if (! is_dir($targetDir)) {
+                            mkdir($targetDir, 0777, true);
+                        }
+                        move_uploaded_file($tmpPath, $targetDir.$profilePic);
+                    } else {
+                        $error = 'نوع ملف الصورة غير صالح. يرجى رفع صورة حقيقية بصيغة JPG أو PNG أو WebP فقط.';
                     }
                 }
 
-                // Update Password if provided
+                // Password Change
+                $passwordSql = '';
+                $passwordParams = [];
                 if (! empty($newPassword)) {
-                    if (! password_verify($currentPassword, $user['password'])) {
+                    if (empty($currentPassword) || ! password_verify($currentPassword, $user['password'])) {
                         $error = 'كلمة المرور الحالية غير صحيحة.';
+                    } elseif (strlen($newPassword) < 6) {
+                        $error = 'كلمة المرور الجديدة يجب أن تكون 6 أحرف على الأقل.';
                     } elseif ($newPassword !== $confirmPassword) {
-                        $error = 'كلمة المرور الجديدة وتأكيدها غير متطابقين.';
+                        $error = 'تأكيد كلمة المرور غير متطابق.';
                     } else {
-                        $newHash = password_hash($newPassword, PASSWORD_DEFAULT);
-                        $updStmt = $db->prepare('UPDATE users SET full_name=?, phone=?, email=?, gender=?, address=?, dob=?, deacon_rank=?, father_name=?, father_phone=?, mother_name=?, mother_phone=?, profile_pic=?, password=? WHERE id=?');
-                        $updStmt->execute([$fullName, $phone, $email ?: null, $gender, $address ?: null, $dob ?: null, $deaconRank, $fatherName ?: null, $fatherPhone ?: null, $motherName ?: null, $motherPhone ?: null, $profilePic, $newHash, $userId]);
-                        $success = 'تم تحديث البيانات وكلمة المرور بنجاح!';
+                        $passwordSql = ', password = ?';
+                        $passwordParams[] = password_hash($newPassword, PASSWORD_DEFAULT);
                     }
-                } else {
-                    $updStmt = $db->prepare('UPDATE users SET full_name=?, phone=?, email=?, gender=?, address=?, dob=?, deacon_rank=?, father_name=?, father_phone=?, mother_name=?, mother_phone=?, profile_pic=? WHERE id=?');
-                    $updStmt->execute([$fullName, $phone, $email ?: null, $gender, $address ?: null, $dob ?: null, $deaconRank, $fatherName ?: null, $fatherPhone ?: null, $motherName ?: null, $motherPhone ?: null, $profilePic, $userId]);
-                    $success = 'تم تحديث البيانات الشخصية بنجاح!';
                 }
 
                 if (empty($error)) {
-                    auto_link_parents((int) $userId);
+                    $updateSql = '
+                        UPDATE users SET
+                            full_name = ?,
+                            phone = ?,
+                            email = ?,
+                            gender = ?,
+                            address = ?,
+                            dob = ?,
+                            deacon_rank = ?,
+                            father_name = ?,
+                            father_phone = ?,
+                            mother_name = ?,
+                            mother_phone = ?,
+                            profile_pic = ?
+                            '.$passwordSql.'
+                        WHERE id = ?
+                    ';
 
+                    $params = array_merge([
+                        $fullName,
+                        $phone,
+                        $email ?: null,
+                        $gender,
+                        $address ?: null,
+                        $dob ?: null,
+                        $deaconRank,
+                        $fatherName ?: null,
+                        $fatherPhone ?: null,
+                        $motherName ?: null,
+                        $motherPhone ?: null,
+                        $profilePic,
+                    ], $passwordParams, [$userId]);
+
+                    $db->prepare($updateSql)->execute($params);
+
+                    // Re-sync session data
                     $_SESSION['user']['full_name'] = $fullName;
                     $_SESSION['user']['phone'] = $phone;
                     $_SESSION['user']['email'] = $email;
-                    log_action($userId, 'PROFILE_UPDATED', 'User updated profile information');
+                    $_SESSION['user']['profile_pic'] = $profilePic;
 
-                    // Refresh local user variable
+                    $success = 'تم تحديث بيانات ملفك الشخصي بنجاح!';
+
+                    // Re-fetch updated user
                     $stmt->execute([$userId]);
                     $user = $stmt->fetch();
                 }
@@ -131,16 +179,21 @@ require_once __DIR__.'/includes/navbar.php';
             <form action="" method="POST" enctype="multipart/form-data">
                 <?= csrf_field() ?>
 
-                <div style="display:flex; align-items:center; gap:1.5rem; margin-bottom:2rem; padding-bottom:1.5rem; border-bottom:1px solid var(--border-color);">
-                    <img src="<?= BASE_URL ?>uploads/profile/<?= sanitize($user['profile_pic'] ?? 'default-avatar.png') ?>" style="width:90px; height:90px; border-radius:50%; object-fit:cover; border:3px solid var(--gold);" alt="الصورة الشخصية" onerror="this.src='<?= BASE_URL ?>assets/images/default-avatar.png'">
-                    <div>
-                        <h3 style="color:var(--royal-blue); font-weight:800;"><?= sanitize($user['full_name']) ?></h3>
-                        <p style="color:var(--text-muted); font-size:0.85rem;">كود الحساب: <code><?= sanitize($user['qr_code_token']) ?></code></p>
-                        <?php if ($user['role'] === 'student' && $user['gender'] === 'male' && $user['deacon_rank']) { ?>
+                <div style="display:flex; align-items:center; flex-wrap:wrap; gap:1.25rem; margin-bottom:2rem; padding-bottom:1.5rem; border-bottom:1px solid var(--border-color);">
+                    <img src="<?= BASE_URL ?>uploads/profile/<?= sanitize($user['profile_pic'] ?? 'default-avatar.png') ?>" style="width:85px; height:85px; border-radius:50%; object-fit:cover; border:3px solid var(--gold); flex-shrink:0;" alt="الصورة الشخصية" onerror="this.src='<?= BASE_URL ?>assets/images/default-avatar.png'">
+                    <div style="min-width:0; flex:1;">
+                        <h3 style="color:var(--royal-blue); font-weight:800; margin-bottom:0.25rem;"><?= sanitize($user['full_name'] ?? '') ?></h3>
+                        <?php if (! empty($user['qr_code_token'])) { ?>
+                            <p style="color:var(--text-muted); font-size:0.85rem;">كود الحساب: <code><?= sanitize($user['qr_code_token']) ?></code></p>
+                        <?php } else { ?>
+                            <p style="color:var(--text-muted); font-size:0.85rem;">رقم الحساب: <code>#<?= sanitize($user['id'] ?? '') ?></code></p>
+                        <?php } ?>
+                        
+                        <?php if (($user['role'] ?? '') === 'student' && ($user['gender'] ?? '') === 'male' && ! empty($user['deacon_rank'])) { ?>
                             <span class="badge badge-gold" style="margin-top:0.4rem;">✝️ <?= sanitize($user['deacon_rank']) ?></span>
                         <?php } ?>
-                        <div style="margin-top:0.5rem;">
-                            <input type="file" name="profile_pic" accept="image/*" class="form-control" style="font-size:0.85rem;">
+                        <div style="margin-top:0.65rem; max-width:280px;">
+                            <input type="file" name="profile_pic" accept="image/*" class="form-control" style="font-size:0.82rem; padding:0.4rem 0.6rem;">
                         </div>
                     </div>
                 </div>
@@ -148,12 +201,12 @@ require_once __DIR__.'/includes/navbar.php';
                 <div style="display:grid; grid-template-columns: 1fr 1fr; gap:1.25rem;">
                     <div class="form-group">
                         <label class="form-label">الاسم بالكامل *</label>
-                        <input type="text" name="full_name" class="form-control" value="<?= sanitize($user['full_name']) ?>" required>
+                        <input type="text" name="full_name" class="form-control" value="<?= sanitize($user['full_name'] ?? '') ?>" required>
                     </div>
 
                     <div class="form-group">
                         <label class="form-label">رقم الهاتف *</label>
-                        <input type="text" name="phone" class="form-control" value="<?= sanitize($user['phone']) ?>" required>
+                        <input type="text" name="phone" class="form-control" value="<?= sanitize($user['phone'] ?? '') ?>" required>
                     </div>
 
                     <div class="form-group">
@@ -164,21 +217,21 @@ require_once __DIR__.'/includes/navbar.php';
                     <div class="form-group">
                         <label class="form-label">الجنس (ولد / بنت)</label>
                         <select name="gender" id="profileGender" class="form-control" onchange="toggleProfileRankUI()">
-                            <option value="male" <?= ($user['gender'] === 'male') ? 'selected' : '' ?>>ذكر (ولد)</option>
-                            <option value="female" <?= ($user['gender'] === 'female') ? 'selected' : '' ?>>أنثى (بنت)</option>
+                            <option value="male" <?= (($user['gender'] ?? 'male') === 'male') ? 'selected' : '' ?>>ذكر (ولد)</option>
+                            <option value="female" <?= (($user['gender'] ?? '') === 'female') ? 'selected' : '' ?>>أنثى (بنت)</option>
                         </select>
                     </div>
 
-                    <?php if ($user['role'] === 'student') { ?>
+                    <?php if (($user['role'] ?? '') === 'student') { ?>
                         <div class="form-group" id="profileRankGroup">
                             <label class="form-label">الرتبة الشموسية (للأولاد فقط)</label>
                             <select name="deacon_rank" class="form-control">
-                                <option value="إبصالتس (مرتل)" <?= ($user['deacon_rank'] === 'إبصالتس (مرتل)') ? 'selected' : '' ?>>إبصالتس (مرتل)</option>
-                                <option value="أغنسطس (قارئ)" <?= ($user['deacon_rank'] === 'أغنسطس (قارئ)') ? 'selected' : '' ?>>أغنسطس (قارئ)</option>
-                                <option value="إبديدياكون (معاون)" <?= ($user['deacon_rank'] === 'إبديدياكون (معاون)') ? 'selected' : '' ?>>إبديدياكون (معاون)</option>
-                                <option value="دياكون (شماس كامل)" <?= ($user['deacon_rank'] === 'دياكون (شماس كامل)') ? 'selected' : '' ?>>دياكون (شماس كامل)</option>
-                                <option value="أرشيدياكون (رئيس الشمامسة)" <?= ($user['deacon_rank'] === 'أرشيدياكون (رئيس الشمامسة)') ? 'selected' : '' ?>>أرشيدياكون (رئيس الشمامسة)</option>
-                                <option value="طالب قيد الإعداد" <?= ($user['deacon_rank'] === 'طالب قيد الإعداد') ? 'selected' : '' ?>>طالب قيد الإعداد (بدون رتبة)</option>
+                                <option value="إبصالتس (مرتل)" <?= (($user['deacon_rank'] ?? '') === 'إبصالتس (مرتل)') ? 'selected' : '' ?>>إبصالتس (مرتل)</option>
+                                <option value="أغنسطس (قارئ)" <?= (($user['deacon_rank'] ?? '') === 'أغنسطس (قارئ)') ? 'selected' : '' ?>>أغنسطس (قارئ)</option>
+                                <option value="إبديدياكون (معاون)" <?= (($user['deacon_rank'] ?? '') === 'إبديدياكون (معاون)') ? 'selected' : '' ?>>إبديدياكون (معاون)</option>
+                                <option value="دياكون (شماس كامل)" <?= (($user['deacon_rank'] ?? '') === 'دياكون (شماس كامل)') ? 'selected' : '' ?>>دياكون (شماس كامل)</option>
+                                <option value="أرشيدياكون (رئيس الشمامسة)" <?= (($user['deacon_rank'] ?? '') === 'أرشيدياكون (رئيس الشمامسة)') ? 'selected' : '' ?>>أرشيدياكون (رئيس الشمامسة)</option>
+                                <option value="طالب قيد الإعداد" <?= (($user['deacon_rank'] ?? '') === 'طالب قيد الإعداد') ? 'selected' : '' ?>>طالب قيد الإعداد (بدون رتبة)</option>
                             </select>
                         </div>
                     <?php } ?>
@@ -199,7 +252,7 @@ require_once __DIR__.'/includes/navbar.php';
                     </div>
                 </div>
 
-                <?php if ($user['role'] === 'student') { ?>
+                <?php if (($user['role'] ?? '') === 'student') { ?>
                     <div style="background:var(--gold-glow); padding:1.25rem; border-radius:var(--radius-sm); margin:1.5rem 0;">
                         <h4 style="color:var(--gold); margin-bottom:1rem;">👨‍👩‍👦 بيانات الأب والأم (للربط التلقائي بحسابات ولي الأمر)</h4>
                         <div style="display:grid; grid-template-columns: 1fr 1fr; gap:1rem;">

@@ -1,85 +1,84 @@
 <?php
 
-// Coptic Calendar & Synaxarium Helper
+use App\Services\CopticLiturgicalService;
+
+// Coptic Calendar & Synaxarium Helper (Bridged with CopticLiturgicalService)
 
 function getCopticDateDetails(?string $gregorianDateStr = null): array
 {
-    $time = $gregorianDateStr ? strtotime($gregorianDateStr) : time();
-    $year = (int) date('Y', $time);
-    $month = (int) date('m', $time);
-    $day = (int) date('d', $time);
+    if (class_exists('App\Services\CopticLiturgicalService')) {
+        $details = CopticLiturgicalService::getDetails($gregorianDateStr);
 
-    // Approximate Coptic Year calculation (e.g. 2026 -> 1742/1743 AM)
+        return [
+            'day' => $details['coptic_day'],
+            'month_num' => $details['coptic_month_num'],
+            'month_name' => $details['coptic_month_ar'],
+            'year' => $details['coptic_year'],
+            'full_str' => $details['coptic_full'],
+            'tone' => $details['tune'],
+            'tone_badge' => $details['tune_badge'],
+            'season' => $details['season'],
+            'synaxarium' => $details['synaxarium'],
+            'katamaros' => $details['katamaros'],
+        ];
+    }
+
+    $time = $gregorianDateStr ? strtotime($gregorianDateStr) : time();
+    $gy = (int) date('Y', $time);
+    $gm = (int) date('m', $time);
+    $gd = (int) date('d', $time);
+
+    // Precise Julian Day Number calculation
+    $a = (int) floor((14 - $gm) / 12);
+    $y = $gy + 4800 - $a;
+    $m = $gm + 12 * $a - 3;
+    $jd = $gd + (int) floor((153 * $m + 2) / 5) + 365 * $y + (int) floor($y / 4) - (int) floor($y / 100) + (int) floor($y / 400) - 32045;
+
+    $copticEpoch = 1825030;
+    $days = $jd - $copticEpoch;
+    $cycle = (int) floor($days / 1461);
+    $rem = $days % 1461;
+    if ($rem < 0) {
+        $rem += 1461;
+        $cycle--;
+    }
+
+    if ($rem < 365) {
+        $yearInCycle = 0;
+        $dayOfYear = $rem;
+    } elseif ($rem < 730) {
+        $yearInCycle = 1;
+        $dayOfYear = $rem - 365;
+    } elseif ($rem < 1096) {
+        $yearInCycle = 2;
+        $dayOfYear = $rem - 730;
+    } else {
+        $yearInCycle = 3;
+        $dayOfYear = $rem - 1096;
+    }
+
+    $copticYear = 4 * $cycle + $yearInCycle + 1;
+    $cMonth = (int) floor($dayOfYear / 30) + 1;
+    $cDay = ($dayOfYear % 30) + 1;
+    if ($cMonth > 13) {
+        $cMonth = 13;
+    }
+
     $copticMonths = [
-        1 => 'توت (Tout)', 2 => 'بابه (Baba)', 3 => 'هاتور (Hathor)',
-        4 => 'كيهك (Kiahk)', 5 => 'طوبة (Toba)', 6 => 'أمشير (Amshir)',
-        7 => 'برمهات (Baramhat)', 8 => 'برمودة (Baramouda)', 9 => 'بشنس (Bashans)',
-        10 => 'بؤونة (Baona)', 11 => 'أبيب (Abib)', 12 => 'مسرى (Mesra)', 13 => 'النسيء (Nasi)',
+        1 => 'توت', 2 => 'بابه', 3 => 'هاتور', 4 => 'كيهك', 5 => 'طوبة', 6 => 'أمشير',
+        7 => 'برمهات', 8 => 'برمودة', 9 => 'بشنس', 10 => 'بؤونة', 11 => 'أبيب', 12 => 'مسرى', 13 => 'النسيء',
     ];
 
-    // Coptic New Year (1 Tout) is Sept 11/12
-    $isLeap = ($year % 4 === 3);
-    $copticYear = $year - 284;
-    if ($month < 9 || ($month === 9 && $day < ($isLeap ? 12 : 11))) {
-        $copticYear--;
-    }
-
-    // Determine Coptic Month
-    if ($month === 9 && $day >= 11) {
-        $cMonth = 1;
-        $cDay = $day - 10;
-    } elseif ($month === 10) {
-        $cMonth = ($day <= 10) ? 1 : 2;
-        $cDay = ($day <= 10) ? $day + 20 : $day - 10;
-    } elseif ($month === 11) {
-        $cMonth = ($day <= 9) ? 2 : 3;
-        $cDay = ($day <= 9) ? $day + 21 : $day - 9;
-    } elseif ($month === 12) {
-        $cMonth = ($day <= 9) ? 3 : 4;
-        $cDay = ($day <= 9) ? $day + 21 : $day - 9;
-    } elseif ($month === 1) {
-        $cMonth = ($day <= 8) ? 4 : 5;
-        $cDay = ($day <= 8) ? $day + 22 : $day - 8;
-    } elseif ($month === 2) {
-        $cMonth = ($day <= 7) ? 5 : 6;
-        $cDay = ($day <= 7) ? $day + 21 : $day - 7;
-    } elseif ($month === 3) {
-        $cMonth = ($day <= 9) ? 6 : 7;
-        $cDay = ($day <= 9) ? $day + 21 : $day - 9;
-    } elseif ($month === 4) {
-        $cMonth = ($day <= 8) ? 7 : 8;
-        $cDay = ($day <= 8) ? $day + 22 : $day - 8;
-    } elseif ($month === 5) {
-        $cMonth = ($day <= 8) ? 8 : 9;
-        $cDay = ($day <= 8) ? $day + 22 : $day - 8;
-    } elseif ($month === 6) {
-        $cMonth = ($day <= 7) ? 9 : 10;
-        $cDay = ($day <= 7) ? $day + 23 : $day - 7;
-    } elseif ($month === 7) {
-        $cMonth = ($day <= 7) ? 10 : 11;
-        $cDay = ($day <= 7) ? $day + 23 : $day - 7;
-    } elseif ($month === 8) {
-        $cMonth = ($day <= 6) ? 11 : 12;
-        $cDay = ($day <= 6) ? $day + 24 : $day - 6;
-    } else {
-        $cMonth = 1;
-        $cDay = 1;
-    }
-
-    // Liturgical Tone (فرايحي، صيامي، سنوي)
-    $tone = 'سنوي (Annual)';
-    if ($cMonth === 4) {
-        $tone = 'كيهكي (Kiahk Tune)';
-    } elseif (date('w', $time) == 5 || date('w', $time) == 3) {
-        $tone = 'صيامي (Fasting)';
-    }
+    $monthName = $copticMonths[$cMonth] ?? 'توت';
 
     return [
         'day' => $cDay,
         'month_num' => $cMonth,
-        'month_name' => $copticMonths[$cMonth] ?? 'توت',
+        'month_name' => $monthName,
         'year' => $copticYear,
-        'full_str' => "{$cDay} {$copticMonths[$cMonth]} {$copticYear} للشهداء",
-        'tone' => $tone,
+        'full_str' => "{$cDay} {$monthName} {$copticYear} للشهداء الأبرار",
+        'tone' => 'سنوي (Annual)',
+        'tone_badge' => 'bg-emerald-600 text-white',
+        'season' => 'الفترة السنوية للكنيسة القبطية الأرثوذكسية',
     ];
 }

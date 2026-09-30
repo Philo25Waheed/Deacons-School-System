@@ -9,6 +9,8 @@ require_role('servant', 'admin');
 
 $db = getDB();
 $search = sanitize($_GET['search'] ?? '');
+$selectedClassId = filter_input(INPUT_GET, 'class_id', FILTER_VALIDATE_INT);
+$accessibleClassIds = get_user_accessible_class_ids();
 
 $query = "
     SELECT u.*, s.name_ar as stage_name, g.name_ar as grade_name, c.name_ar as class_name,
@@ -22,9 +24,27 @@ $query = "
 ";
 $params = [];
 
+if ($accessibleClassIds !== null) {
+    if (empty($accessibleClassIds)) {
+        $query .= ' AND 1=0';
+    } else {
+        if ($selectedClassId && in_array($selectedClassId, $accessibleClassIds, true)) {
+            $query .= ' AND u.class_id = ?';
+            $params[] = $selectedClassId;
+        } else {
+            $inClause = implode(',', array_fill(0, count($accessibleClassIds), '?'));
+            $query .= " AND u.class_id IN ({$inClause})";
+            $params = $accessibleClassIds;
+        }
+    }
+} elseif ($selectedClassId) {
+    $query .= ' AND u.class_id = ?';
+    $params[] = $selectedClassId;
+}
+
 if ($search) {
     $query .= ' AND (u.full_name LIKE ? OR u.phone LIKE ? OR u.qr_code_token LIKE ?)';
-    $params = ["%$search%", "%$search%", "%$search%"];
+    $params = array_merge($params, ["%$search%", "%$search%", "%$search%"]);
 }
 
 $query .= ' GROUP BY u.id ORDER BY u.full_name ASC';
@@ -58,8 +78,7 @@ require_once __DIR__.'/../includes/navbar.php';
                             <th>الكود</th>
                             <th>الاسم</th>
                             <th>المرحلة والصف</th>
-                            <th>الكنيسة</th>
-                            <th>النقاط</th>
+                            <th>الطايو</th>
                             <th>إجراءات</th>
                         </tr>
                     </thead>
@@ -75,11 +94,13 @@ require_once __DIR__.'/../includes/navbar.php';
                                 <td><code><?= sanitize($stu['qr_code_token']) ?></code></td>
                                 <td><strong><?= sanitize($stu['full_name']) ?></strong></td>
                                 <td><?= sanitize($stu['stage_name'] ?? '') ?> - <?= sanitize($stu['grade_name'] ?? '') ?></td>
-                                <td><?= sanitize($stu['church_name']) ?></td>
-                                <td><span class="badge badge-gold">⭐ <?= $stu['total_points'] ?></span></td>
+                                <td><span class="badge badge-gold">⭐ <?= $stu['total_points'] ?> طايو</span></td>
                                 <td>
-                                    <a href="<?= BASE_URL ?>servant/points.php?student_id=<?= $stu['id'] ?>" class="btn btn-gold btn-sm">إضافة نقاط</a>
-                                    <a href="<?= BASE_URL ?>servant/evaluations.php?student_id=<?= $stu['id'] ?>" class="btn btn-secondary btn-sm">تقييم</a>
+                                    <div style="display:flex; gap:0.35rem; align-items:center; flex-wrap:wrap;">
+                                        <a href="<?= BASE_URL ?>admin/student_report.php?id=<?= $stu['id'] ?>" class="btn btn-primary btn-sm" title="التقرير المفصل">📊 تقرير مفصل</a>
+                                        <a href="<?= BASE_URL ?>servant/points.php?student_id=<?= $stu['id'] ?>" class="btn btn-gold btn-sm">إضافة طايو</a>
+                                        <a href="<?= BASE_URL ?>servant/evaluations.php?student_id=<?= $stu['id'] ?>" class="btn btn-secondary btn-sm">تقييم</a>
+                                    </div>
                                 </td>
                             </tr>
                         <?php } ?>

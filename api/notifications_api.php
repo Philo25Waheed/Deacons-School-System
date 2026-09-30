@@ -17,8 +17,18 @@ $action = sanitize($_GET['action'] ?? 'list');
 
 try {
     $db = getDB();
+    if (function_exists('trigger_daily_birthday_notifications')) {
+        trigger_daily_birthday_notifications($db);
+    }
 
     if ($action === 'mark_read') {
+        if (($_SERVER['REQUEST_METHOD'] ?? 'GET') !== 'POST') {
+            send_json(['status' => 'error', 'message' => 'طريقة الطلب غير صحيحة، يتطلب POST'], 405);
+        }
+        $csrfToken = $_POST['csrf_token'] ?? ($_SERVER['HTTP_X_CSRF_TOKEN'] ?? null);
+        if (! verify_csrf_token($csrfToken)) {
+            send_json(['status' => 'error', 'message' => 'رمز CSRF غير صالح'], 403);
+        }
         $stmt = $db->prepare('UPDATE notifications SET is_read = 1 WHERE user_id = ?');
         $stmt->execute([$userId]);
         send_json(['status' => 'success', 'message' => 'تم تحديث الإشعارات']);

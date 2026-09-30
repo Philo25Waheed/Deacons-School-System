@@ -1,0 +1,31 @@
+# ========================================================
+# Apache Configuration for InfinityFree & Local Hosting
+# ========================================================
+
+<IfModule mod_rewrite.c>
+    RewriteEngine On
+
+    # 1. Directly allow static asset requests (CSS, JS, images, fonts, uploads)
+    RewriteRule ^assets/ - [L]
+    RewriteRule ^uploads/ - [L]
+
+    # 2. Block access to hidden files (.env, .git, etc.)
+    RewriteRule (^|/)\. - [F,L]
+
+    # 3. Block access to sensitive system directories and files
+    RewriteRule ^(database|storage|config|app|bootstrap|tests|scratch)/ - [F,L]
+    RewriteRule ^(composer\.(json|lock)|package.*\.json|phpunit\.xml|artisan)$ - [F,L]
+
+    # 4. Handle Authorization Header for API calls
+    RewriteCond %{HTTP:Authorization} .
+    RewriteRule .* - [E=HTTP_AUTHORIZATION:%{HTTP:Authorization}]
+
+    # 5. Skip rewrite if the requested file or directory physically exists
+    RewriteCond %{REQUEST_FILENAME} -f [OR]
+    RewriteCond %{REQUEST_FILENAME} -d
+    RewriteRule ^ - [L]
+
+    # 7. Block access to .sql and .env files safely via mod_rewrite
+    RewriteRule (^|/)\.env - [F,L]
+    RewriteRule \.sql$ - [F,L]
+</IfModule>

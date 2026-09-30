@@ -1,15 +1,16 @@
 <?php
 
-// Session Management & Security (8 Hour Timeout)
+use Illuminate\Container\Container;
+use Illuminate\Support\Str;
 
-if (session_status() === PHP_SESSION_NONE) {
-    // Session timeout set to 8 hours = 28800 seconds
+// Native Session Management & Security (8 Hour Timeout) for non-Laravel entry points
+if (php_sapi_name() !== 'cli' && session_status() === PHP_SESSION_NONE) {
     ini_set('session.gc_maxlifetime', 28800);
     ini_set('session.cookie_lifetime', 28800);
 
     $isHttps = (! empty($_SERVER['HTTPS']) && $_SERVER['HTTPS'] !== 'off')
         || (isset($_SERVER['HTTP_X_FORWARDED_PROTO']) && $_SERVER['HTTP_X_FORWARDED_PROTO'] === 'https')
-        || getenv('APP_ENV') === 'production';
+        || (isset($_SERVER['SERVER_PORT']) && (int) $_SERVER['SERVER_PORT'] === 443);
 
     $sameSite = getenv('SESSION_SAMESITE') ?: 'Lax';
 
@@ -22,17 +23,87 @@ if (session_status() === PHP_SESSION_NONE) {
         'samesite' => $sameSite,
     ]);
 
-    session_start();
+    @session_start();
 }
 
-// 8 Hour Inactivity check
-$max_inactivity = 28800; // 8 hours
-if (isset($_SESSION['LAST_ACTIVITY']) && (time() - $_SESSION['LAST_ACTIVITY'] > $max_inactivity)) {
-    session_unset();
-    session_destroy();
-    session_start();
-    $_SESSION['flash_error'] = 'انتهت الجلسة بعد 8 ساعات من بعد عدم النشاط. يرجى تسجيل الدخول مجدداً.';
-}
-$_SESSION['LAST_ACTIVITY'] = time();
+if (class_exists(Container::class)) {
+    $container = Container::getInstance();
+    if ($container && ! $container->bound('session')) {
+        $container->singleton('session', function () {
+            return new class
+            {
+                public function token()
+                {
+                    if (empty($_SESSION['csrf_token'])) {
+                        $_SESSION['csrf_token'] = bin2hex(random_bytes(32));
+                    }
 
-return [];
+                    return $_SESSION['csrf_token'];
+                }
+            };
+        });
+    }
+}
+
+if (! function_exists('env')) {
+    function env(string $key, mixed $default = null): mixed
+    {
+        $val = $_ENV[$key] ?? $_SERVER[$key] ?? getenv($key);
+        if ($val === false || $val === null) {
+            return $default instanceof Closure ? $default() : $default;
+        }
+
+        return match (is_string($val) ? strtolower($val) : $val) {
+            'true', '(true)' => true,
+            'false', '(false)' => false,
+            'empty', '(empty)' => '',
+            'null', '(null)' => null,
+            default => $val,
+        };
+    }
+}
+
+return [
+
+    /*
+    |--------------------------------------------------------------------------
+    | Default Session Driver
+    |--------------------------------------------------------------------------
+    */
+
+    'driver' => env('SESSION_DRIVER', 'file'),
+
+    'lifetime' => env('SESSION_LIFETIME', 120),
+
+    'expire_on_close' => false,
+
+    'encrypt' => env('SESSION_ENCRYPT', false),
+
+    'files' => __DIR__.'/../storage/framework/sessions',
+
+    'connection' => env('SESSION_CONNECTION'),
+
+    'table' => 'sessions',
+
+    'store' => env('SESSION_STORE'),
+
+    'lottery' => [2, 100],
+
+    'cookie' => env(
+        'SESSION_COOKIE',
+        (class_exists(Str::class) ? Str::slug(env('APP_NAME', 'laravel'), '_') : 'deacons_school').'_session'
+    ),
+
+    'path' => env('SESSION_PATH', '/'),
+
+    'domain' => env('SESSION_DOMAIN'),
+
+    'secure' => env('SESSION_SECURE_COOKIE'),
+
+    'http_only' => true,
+
+    'same_site' => env('SESSION_SAMESITE', 'lax'),
+
+    'partitioned' => false,
+
+];

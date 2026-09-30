@@ -36,18 +36,54 @@ require_once __DIR__.'/../includes/navbar.php';
                     <thead>
                         <tr>
                             <th>التاريخ</th>
-                            <th>وقت التسجيل المسحي</th>
+                            <th>وقت التسجيل</th>
                             <th>الخادم المسجل</th>
+                            <th>📖 الحصة</th>
+                            <th>📜 البامفلت</th>
+                            <th>⛪ القداس</th>
+                            <th>🪙 نقاط الطايو</th>
                             <th>الحالة</th>
                         </tr>
                     </thead>
                     <tbody>
-                        <?php foreach ($list as $rec) { ?>
+                        <?php if (empty($list)) { ?>
+                            <tr>
+                                <td colspan="8" style="text-align:center; padding:1.5rem; color:var(--text-muted);">
+                                    لم يتم تسجيل أي حضور حتى الآن.
+                                </td>
+                            </tr>
+                        <?php } ?>
+                        <?php foreach ($list as $rec) {
+                            $hasL = (bool) ($rec['attended_lesson'] ?? true);
+                            $hasP = (bool) ($rec['attended_pamphlet'] ?? false);
+                            $hasLit = (bool) ($rec['attended_liturgy'] ?? false);
+                            $pts = (int) ($rec['points_awarded'] ?? (($hasL ? 1 : 0) + ($hasP ? 1 : 0) + ($hasLit ? 1 : 0)));
+                            ?>
                             <tr>
                                 <td><strong><?= format_arabic_date($rec['attendance_date']) ?></strong></td>
                                 <td><?= date('H:i:s', strtotime($rec['scanned_at'])) ?></td>
                                 <td><?= sanitize($rec['servant_name']) ?></td>
-                                <td><span class="badge badge-success">حاضر ✅</span></td>
+                                <td>
+                                    <?= $hasL ? '<span class="badge badge-success">حاضر (+1) ✅</span>' : '<span class="badge badge-secondary">غائب ❌</span>' ?>
+                                </td>
+                                <td>
+                                    <?= $hasP ? '<span class="badge badge-gold">مُستلم (+1) 📜</span>' : '<span class="badge badge-secondary">لم يستلم ✖</span>' ?>
+                                </td>
+                                <td>
+                                    <?= $hasLit ? '<span class="badge badge-info">حاضر (+1) ⛪</span>' : '<span class="badge badge-secondary">غائب ✖</span>' ?>
+                                </td>
+                                <td>
+                                    <span class="badge badge-gold" style="font-weight:700;">🪙 +<?= $pts ?> طايو</span>
+                                </td>
+                                <td>
+                                    <?php if ($rec['status'] === 'present') { ?>
+                                        <span class="badge badge-success">حاضر ✅</span>
+                                    <?php } elseif ($rec['status'] === 'late') { ?>
+                                        <span class="badge badge-warning">متأخر ⏰</span>
+                                    <?php } else { ?>
+                                        <span class="badge badge-danger">غائب ❌</span>
+                                    <?php } ?>
+                                </td>
                             </tr>
                         <?php } ?>
                     </tbody>

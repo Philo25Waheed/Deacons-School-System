@@ -60,4 +60,3 @@ if (! function_exists('require_role')) {
         }
     }
 }
-

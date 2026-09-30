@@ -13,6 +13,9 @@ $type = sanitize($_GET['type'] ?? 'students');
 
 $db = getDB();
 
+$userRole = $_SESSION['user']['role'] ?? '';
+$accessibleClasses = get_user_accessible_class_ids();
+
 if ($type === 'students') {
     $filename = 'students_export_'.date('Y-m-d').'.csv';
 
@@ -23,23 +26,36 @@ if ($type === 'students') {
     echo "\xEF\xBB\xBF";
 
     $output = fopen('php://output', 'w');
-    fputcsv($output, ['رقم الكود', 'الاسم بالكامل', 'رقم الهاتف', 'البريد الإلكتروني', 'المرحلة', 'الصف', 'الفصل', 'الكنيسة', 'الحالة']);
+    fputcsv($output, ['رقم الكود', 'الاسم بالكامل', 'رقم الهاتف', 'البريد الإلكتروني', 'المرحلة', 'الصف', 'الفصل', 'الحالة']);
 
-    $stmt = $db->query("
+    $whereClause = "WHERE u.role = 'student'";
+    $params = [];
+    if ($userRole === 'servant') {
+        if (! empty($accessibleClasses)) {
+            $inPlaceholders = implode(',', array_fill(0, count($accessibleClasses), '?'));
+            $whereClause .= " AND u.class_id IN ({$inPlaceholders})";
+            $params = $accessibleClasses;
+        } else {
+            $whereClause .= ' AND 1 = 0';
+        }
+    }
+
+    $stmt = $db->prepare("
         SELECT u.qr_code_token, u.full_name, u.phone, u.email,
                s.name_ar as stage, g.name_ar as grade, c.name_ar as class,
-               u.church_name, u.status
+               u.status
         FROM users u
         LEFT JOIN stages s ON u.stage_id = s.id
         LEFT JOIN grades g ON u.grade_id = g.id
         LEFT JOIN classes c ON u.class_id = c.id
-        WHERE u.role = 'student'
+        {$whereClause}
         ORDER BY u.id DESC
     ");
+    $stmt->execute($params);
 
     while ($row = $stmt->fetch()) {
         $statusAr = ($row['status'] === 'active') ? 'مفعل' : (($row['status'] === 'pending') ? 'قيد الانتظار' : 'معطل');
-        fputcsv($output, [
+        fputcsv($output, sanitize_csv_row([
             $row['qr_code_token'],
             $row['full_name'],
             $row['phone'],
@@ -47,9 +63,8 @@ if ($type === 'students') {
             $row['stage'],
             $row['grade'],
             $row['class'],
-            $row['church_name'],
             $statusAr,
-        ]);
+        ]));
     }
     fclose($output);
     exit;
@@ -63,7 +78,19 @@ if ($type === 'students') {
     $output = fopen('php://output', 'w');
     fputcsv($output, ['اسم الشماس', 'المرحلة', 'الصف', 'الفصل', 'تاريخ الحضور', 'الوقت', 'الخادم المسجل']);
 
-    $stmt = $db->query('
+    $whereClause = '';
+    $params = [];
+    if ($userRole === 'servant') {
+        if (! empty($accessibleClasses)) {
+            $inPlaceholders = implode(',', array_fill(0, count($accessibleClasses), '?'));
+            $whereClause = "WHERE u.class_id IN ({$inPlaceholders})";
+            $params = $accessibleClasses;
+        } else {
+            $whereClause = 'WHERE 1 = 0';
+        }
+    }
+
+    $stmt = $db->prepare("
         SELECT u.full_name as student_name, s.name_ar as stage, g.name_ar as grade, c.name_ar as class,
                a.attendance_date, a.scanned_at, srv.full_name as servant_name
         FROM attendance a
@@ -72,11 +99,13 @@ if ($type === 'students') {
         LEFT JOIN stages s ON u.stage_id = s.id
         LEFT JOIN grades g ON u.grade_id = g.id
         LEFT JOIN classes c ON u.class_id = c.id
+        {$whereClause}
         ORDER BY a.id DESC
-    ');
+    ");
+    $stmt->execute($params);
 
     while ($row = $stmt->fetch()) {
-        fputcsv($output, [
+        fputcsv($output, sanitize_csv_row([
             $row['student_name'],
             $row['stage'],
             $row['grade'],
@@ -84,7 +113,7 @@ if ($type === 'students') {
             $row['attendance_date'],
             $row['scanned_at'],
             $row['servant_name'],
-        ]);
+        ]));
     }
     fclose($output);
     exit;

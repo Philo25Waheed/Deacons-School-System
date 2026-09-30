@@ -16,7 +16,9 @@ $totalParents = $db->query("SELECT COUNT(*) FROM users WHERE role = 'parent' AND
 
 // Attendance today
 $today = date('Y-m-d');
-$presentToday = $db->query("SELECT COUNT(*) FROM attendance WHERE attendance_date = '$today' AND status = 'present'")->fetchColumn();
+$attStmt = $db->prepare('SELECT COUNT(*) FROM attendance WHERE attendance_date = ? AND status = "present"');
+$attStmt->execute([$today]);
+$presentToday = $attStmt->fetchColumn();
 $attendanceRate = ($totalStudents > 0) ? round(($presentToday / $totalStudents) * 100, 1) : 0;
 
 $totalPointsSum = $db->query("SELECT COALESCE(SUM(CASE WHEN type = 'positive' THEN points ELSE -points END), 0) FROM points")->fetchColumn();
@@ -38,9 +40,9 @@ require_once __DIR__.'/../includes/navbar.php';
     <?php require_once __DIR__.'/../includes/sidebar.php'; ?>
 
     <main class="main-content">
-        <div style="display:flex; justify-content:space-between; align-items:center; margin-bottom:2rem;">
+        <div style="display:flex; justify-content:space-between; align-items:center; flex-wrap:wrap; gap:1rem; margin-bottom:2rem;">
             <div>
-                <h1 style="color:var(--royal-blue); font-size:1.8rem; font-weight:800;">لوحة إدارة مدرسة الشمامسة ⛪</h1>
+                <h1 style="color:var(--royal-blue); font-size:1.8rem; font-weight:800;">لوحة إدارة مدرسة الشهيد إسطفانوس ⛪</h1>
                 <p style="color:var(--text-muted);">أهلاً بك، <?= sanitize($_SESSION['user']['full_name']) ?> (مدير النظام)</p>
             </div>
             <div>

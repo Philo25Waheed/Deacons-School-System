@@ -10,7 +10,9 @@ require_role('servant', 'admin');
 
 $db = getDB();
 
-if ($_SERVER['REQUEST_METHOD'] === 'POST') {
+$accessibleClassIds = get_user_accessible_class_ids();
+
+if (($_SERVER['REQUEST_METHOD'] ?? 'GET') === 'POST') {
     $csrfToken = $_POST['csrf_token'] ?? '';
     if (verify_csrf_token($csrfToken)) {
         $studentId = filter_input(INPUT_POST, 'student_id', FILTER_VALIDATE_INT);
@@ -19,23 +21,61 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST') {
         $church = filter_input(INPUT_POST, 'church_attending', FILTER_VALIDATE_INT);
         $notes = sanitize($_POST['notes']);
 
-        $stmt = $db->prepare('INSERT INTO evaluations (student_id, servant_id, behavior_score, hymn_memorization, church_attending, notes, evaluation_date) VALUES (?, ?, ?, ?, ?, ?, ?)');
-        $stmt->execute([$studentId, $_SESSION['user']['id'], $behavior, $hymn, $church, $notes, date('Y-m-d')]);
+        if ($studentId && can_servant_access_student($_SESSION['user']['id'], $studentId, $_SESSION['user']['role'])) {
+            $stmt = $db->prepare('INSERT INTO evaluations (student_id, servant_id, behavior_score, hymn_memorization, church_attending, notes, evaluation_date) VALUES (?, ?, ?, ?, ?, ?, ?)');
+            $stmt->execute([$studentId, $_SESSION['user']['id'], $behavior, $hymn, $church, $notes, date('Y-m-d')]);
 
-        $_SESSION['flash_success'] = 'تم حفظ التقييم السلوكي للشماس بنجاح!';
+            $_SESSION['flash_success'] = 'تم حفظ التقييم السلوكي للشماس بنجاح!';
+        } else {
+            $_SESSION['flash_error'] = 'عذراً، هذا الشماس ليس ضمن الفصول المسندة لخدمتك.';
+        }
         header('Location: '.BASE_URL.'servant/evaluations.php');
         exit;
     }
 }
 
-$students = $db->query("SELECT id, full_name FROM users WHERE role = 'student' AND status = 'active' ORDER BY full_name ASC")->fetchAll();
-$evaluations = $db->query('
+// Fetch active students for dropdown (scoped if servant)
+$studentsQuery = "SELECT u.id, u.full_name, c.name_ar as class_name, g.name_ar as grade_name FROM users u LEFT JOIN classes c ON u.class_id = c.id LEFT JOIN grades g ON u.grade_id = g.id WHERE u.role = 'student' AND u.status = 'active'";
+$studentsParams = [];
+
+if ($accessibleClassIds !== null) {
+    if (empty($accessibleClassIds)) {
+        $studentsQuery .= ' AND 1=0';
+    } else {
+        $inStudents = implode(',', array_fill(0, count($accessibleClassIds), '?'));
+        $studentsQuery .= " AND u.class_id IN ({$inStudents})";
+        $studentsParams = $accessibleClassIds;
+    }
+}
+$studentsQuery .= ' ORDER BY u.full_name ASC';
+$stmtStudents = $db->prepare($studentsQuery);
+$stmtStudents->execute($studentsParams);
+$students = $stmtStudents->fetchAll();
+
+// Fetch evaluations (scoped if servant)
+$evalQuery = '
     SELECT ev.*, u.full_name as student_name, srv.full_name as servant_name
     FROM evaluations ev
     JOIN users u ON ev.student_id = u.id
     JOIN users srv ON ev.servant_id = srv.id
-    ORDER BY ev.id DESC LIMIT 30
-')->fetchAll();
+';
+$evalParams = [];
+
+if ($accessibleClassIds !== null) {
+    if (empty($accessibleClassIds)) {
+        $evalQuery .= ' WHERE ev.servant_id = ?';
+        $evalParams = [$_SESSION['user']['id']];
+    } else {
+        $inEval = implode(',', array_fill(0, count($accessibleClassIds), '?'));
+        $evalQuery .= " WHERE u.class_id IN ({$inEval}) OR ev.servant_id = ?";
+        $evalParams = array_merge($accessibleClassIds, [$_SESSION['user']['id']]);
+    }
+}
+
+$evalQuery .= ' ORDER BY ev.id DESC LIMIT 30';
+$stmtEval = $db->prepare($evalQuery);
+$stmtEval->execute($evalParams);
+$evaluations = $stmtEval->fetchAll();
 
 require_once __DIR__.'/../includes/header.php';
 require_once __DIR__.'/../includes/navbar.php';

@@ -5,7 +5,9 @@ require_once __DIR__.'/../config/session.php';
 require_once __DIR__.'/../includes/helpers.php';
 
 if (isset($_SESSION['user']['id'])) {
-    log_action($_SESSION['user']['id'], 'LOGOUT', 'User logged out');
+    if (function_exists('log_action')) {
+        log_action($_SESSION['user']['id'], 'LOGOUT', 'User logged out');
+    }
 }
 
 $_SESSION = [];

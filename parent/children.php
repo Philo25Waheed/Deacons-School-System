@@ -42,7 +42,6 @@ require_once __DIR__.'/../includes/navbar.php';
                             <th>اسم الشماس</th>
                             <th>صلة القرابة</th>
                             <th>المرحلة والصف</th>
-                            <th>الكنيسة</th>
                             <th>التقرير والبطاقة</th>
                         </tr>
                     </thead>
@@ -59,7 +58,6 @@ require_once __DIR__.'/../includes/navbar.php';
                                 <td><strong><?= sanitize($ch['full_name']) ?></strong></td>
                                 <td><span class="badge badge-gold"><?= sanitize($ch['relationship'] ?? 'والد / أم') ?></span></td>
                                 <td><?= sanitize($ch['stage'] ?? '') ?> - <?= sanitize($ch['grade'] ?? '') ?></td>
-                                <td><?= sanitize($ch['church_name']) ?></td>
                                 <td>
                                     <a href="<?= BASE_URL ?>parent/child_details.php?id=<?= $ch['id'] ?>" class="btn btn-primary btn-sm">التقرير الشامل</a>
                                     <a href="<?= BASE_URL ?>student/card.php?id=<?= $ch['id'] ?>" class="btn btn-gold btn-sm">طباعة الكارت</a>
